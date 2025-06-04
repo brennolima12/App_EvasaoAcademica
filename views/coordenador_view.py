@@ -108,7 +108,7 @@ def inserir_dado_na_planilha(novo_aluno,path):
     #st.rerun()
     ##########################IGNORAR###################################
 def comparar_aluno_com_media(st, pd, path="dataset/dataSetSintetico.csv"):
-    st.header("📈 Comparação do Aluno com a Média da Turma")
+    st.header("📈 Comparação do Aluno com a Média do Curso")
 
     df = pd.read_csv(path)
 
@@ -123,7 +123,6 @@ def comparar_aluno_com_media(st, pd, path="dataset/dataSetSintetico.csv"):
             df[col] = df[col].astype(str).str.strip().str.replace(',', '.')
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-            # Selecionar o aluno para comparação
     id_aluno = st.number_input("Digite o ID do aluno para comparar", min_value=1, step=1)
 
     if st.button("Comparar"):
@@ -145,9 +144,15 @@ def comparar_aluno_com_media(st, pd, path="dataset/dataSetSintetico.csv"):
         }
 
         st.subheader(f"Dados do aluno {id_aluno}")
-        st.write(aluno)
+        aluno_dados = aluno[col_numericas]
+        aluno_dados.name = "Dados do Aluno"
+        aluno_df = pd.DataFrame({
+            "Métricas": aluno_dados.index,
+            "Valores do Aluno": aluno_dados.values
+        })
+        st.table(aluno_df.set_index("Métricas"))
 
-        st.subheader("Médias da turma")
+        st.subheader("Médias da Curso")
         st.write(medias)
 
         st.subheader("Comparação")
@@ -159,18 +164,21 @@ def comparar_aluno_com_media(st, pd, path="dataset/dataSetSintetico.csv"):
             situacao = "Acima da média" if diferenca > 0 else ("Normal" if diferenca == 0 else "Abaixo da média")
             comparacao[chave] = {
                 "Valor Aluno": valor_aluno,
-                "Média Turma": round(media_valor, 2),
+                "Média Curso": round(media_valor, 2),
                 "Diferença": round(diferenca, 2),
                 "Situação": situacao
             }
             if situacao == "Abaixo da média":
                 abaixo_da_media.append(chave)
 
-        st.table(pd.DataFrame(comparacao).T)
+        comparacao_df = pd.DataFrame(comparacao).T
+        comparacao_df.index.name = 'Métricas'
+        st.table(comparacao_df)
 
         if len(abaixo_da_media) >= 4:
             atributos_str = ", ".join(abaixo_da_media)
             st.warning(
-                f"⚠️ Alerta: O aluno apresenta desempenho abaixo da média nos seguintes atributos: {atributos_str}. Recomenda-se acompanhamento, pois pode haver risco de evasão.")
+                f"⚠️ Alerta: O aluno apresenta desempenho abaixo da média nos seguintes parâmetros de possível evasão: {atributos_str}. Recomenda-se acompanhamento, pois pode haver risco de evasão.")
         else:
             st.info("Aluno com desempenho satisfatório ou risco baixo de evasão baseado nas métricas atuais.")
+
