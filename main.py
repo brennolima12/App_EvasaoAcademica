@@ -19,7 +19,7 @@ def main():
         if st.session_state.tipo_usuario == "coordenador":
             painel_coordenador(st,os,pd)
         elif st.session_state.tipo_usuario == "professor":
-            painel_professor()
+            painel_professor(st,os,pd)
         else:
             st.error("Tipo de usuário desconhecido.")
             logout()
