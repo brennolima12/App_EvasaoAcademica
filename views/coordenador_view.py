@@ -1,525 +1,252 @@
-from auth import logout
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from model.inferencia_modelo import prever_risco_evasao
+from utils.relatorios import gerar_relatorio_pdf
+from auth import logout
+import datetime
+import glob
 import os
-import time
 
-def painel_coordenador(st, os, pd):
-    configurar_sidebar()
-    st.title("🔐 Painel do Coordenador")
+def painel_coordenador():
+    st.title("📈 Previsão de Evasão Acadêmica - Coordenador")
+    st.sidebar.title("🎯 Menu do Coordenador")
+    st.sidebar.button("🚪 Sair", use_container_width=True, on_click=logout)
 
-    secao_insercao_dados()
-    st.markdown("---")
+    tab1, tab2, tab3, tab4 = st.tabs(["📤 Análise por Lote", "🧪 Aluno Manual", "👤 Análise Individual", "📚 Histórico de Análises"])
 
-    secao_visualizacao_dados(pd)
-    st.markdown("---")
+    df_pred = None
+    df_manual_pred = None
 
-    secao_tabela_consolidada_filtrada(st, pd, path="dataset/dataSetSintetico1.csv")
-    st.markdown("---")
+    # ==================== TAB 1: Inserção CSV ====================
+    with tab1:
+        st.subheader("📤 Upload de Arquivo CSV")
+        arquivo_csv = st.file_uploader("Selecione um arquivo com os dados dos alunos", type=["csv"])
 
-    secao_comparacao_aluno(st, pd)
-    st.markdown("---")
+        if not arquivo_csv:
+            st.info("📎 Envie um arquivo CSV para iniciar a análise.")
+            return
 
-    secao_dashboard_individual(st, pd)
-    st.markdown("---")
+        # 1. Processamento inicial
+        df = pd.read_csv(arquivo_csv)
+        st.success(f"✅ {len(df)} registros carregados com sucesso.")
+        df_pred = prever_risco_evasao(df)
 
-    secao_evolucao_aluno(st, pd)
-    st.markdown("---")
+        if df_pred.empty:
+            st.warning("⚠️ A análise gerou uma base vazia. Verifique os dados enviados.")
+            return
 
-    st.markdown("---")
-    identificar_alunos_em_risco(st, pd)
-def configurar_sidebar():
-    """Configura a barra lateral com informações e controles"""
-    st.sidebar.title("🎯 Menu de Controle")
-    st.sidebar.markdown("---")
+        # 2. Filtros de visualização
+        st.markdown("### 🎯 Filtros")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            risco_opcao = st.radio("Filtrar por risco:", ["Todos", "🟢 Baixo", "🟠 Médio", "🔴 Alto"], horizontal=True)
+            if risco_opcao != "Todos":
+                df_pred = df_pred[df_pred["Nível de Risco"] == risco_opcao]
+        with col2:
+            risco_acima_90 = st.checkbox("🔎 Apenas alunos com risco > 90%")
+            if risco_acima_90:
+                df_pred = df_pred[df_pred["Probabilidade"] > 0.9]
 
-    st.sidebar.markdown("### ℹ️ Informações")
-    st.sidebar.info("Sistema de Gestão Acadêmica")
+        # 3. Tabela com resultados
+        st.markdown("### 📋 Alunos Analisados")
+        df_view = df_pred[["id_aluno", "Probabilidade", "Nível de Risco"]].copy()
+        df_view["Probabilidade"] = (df_view["Probabilidade"] * 100).round(1).astype(str) + " %"
+        st.write(f"**🎓 Total exibido:** {len(df_view)} aluno(s)")
+        st.dataframe(df_view, use_container_width=True)
 
-    if os.path.exists("dataset/dataSetSintetico.csv"):
-        df = pd.read_csv("dataset/dataSetSintetico.csv")
-        total_alunos = len(df)
-        st.sidebar.metric("👥 Total de Alunos", total_alunos)
+        # 4. Exportação e salvamento
+        with st.expander("📥 Exportar ou Salvar Análise"):
+            csv = df_pred.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Baixar CSV", csv, file_name="alunos_filtrados.csv", mime="text/csv")
 
-    st.sidebar.markdown("---")
+            st.markdown("---")
+            etiqueta = st.text_input("📝 Nome do lote (opcional)", value="analise")
+            if st.button("💾 Salvar como Base Oficial"):
+                agora = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+                nome_arquivo = f"dataset/base_{etiqueta}_{agora}.csv".replace(" ", "_")
+                df_pred.to_csv(nome_arquivo, index=False)
+                st.success(f"📁 Base salva como `{nome_arquivo}`.")
 
-    if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
-        logout()
+        # 5. Gráficos e análises visuais
+        with st.expander("📊 Gráficos e Relatórios"):
+            st.markdown("#### 📊 Distribuição por Risco")
+            fig_risco = px.histogram(
+                df_pred,
+                x="Nível de Risco",
+                color="Nível de Risco",
+                category_orders={"Nível de Risco": ["🟢 Baixo", "🟠 Médio", "🔴 Alto"]},
+                color_discrete_map={"🟢 Baixo": "green", "🟠 Médio": "gold", "🔴 Alto": "red"},
+            )
+            st.plotly_chart(fig_risco, use_container_width=True)
 
+            st.markdown("#### 📈 Probabilidade de Evasão")
+            fig_prob = px.histogram(df_pred, x="Probabilidade", nbins=20, marginal="rug")
+            st.plotly_chart(fig_prob, use_container_width=True)
 
-def secao_insercao_dados():
-    """Seção organizada para inserção de dados"""
-    st.header("📝 Gerenciamento de Dados")
+            if "semestre_atual" in df_pred.columns:
+                st.markdown("#### 📈 Evolução do Risco por Semestre")
+                media_risco = df_pred.groupby("semestre_atual")["Probabilidade"].mean().reset_index()
+                fig_linha = px.line(media_risco, x="semestre_atual", y="Probabilidade", markers=True)
+                st.plotly_chart(fig_linha, use_container_width=True)
 
-    tab_manual, tab_upload = st.tabs(["➕ Inserir Aluno", "📁 Upload CSV"])
+            st.markdown("#### 📊 Média de Desempenho por Risco")
+            media_risco = df_pred.groupby("Nível de Risco")[["media_notas", "frequencia", "taxa_aprovacao"]].mean().reset_index()
+            fig_media = px.bar(
+                media_risco.melt(id_vars="Nível de Risco", var_name="Métrica", value_name="Valor"),
+                x="Métrica", y="Valor", color="Nível de Risco", barmode="group",
+                category_orders={"Nível de Risco": ["🟢 Baixo", "🟠 Médio", "🔴 Alto"]},
+                color_discrete_map={"🟢 Baixo": "green", "🟠 Médio": "gold", "🔴 Alto": "red"}
+            )
+            st.plotly_chart(fig_media, use_container_width=True)
 
-    with tab_manual:
-        inserir_dados_aluno()
+            st.markdown("#### 📌 Resumo")
+            contagem = df_pred["Nível de Risco"].value_counts().to_dict()
+            for risco in ["🟢 Baixo", "🟠 Médio", "🔴 Alto"]:
+                qtd = contagem.get(risco, 0)
+                st.markdown(f"- {risco}: **{qtd} aluno(s)**")
 
-    with tab_upload:
-        inserir_planilha()
+            st.markdown("#### 📄 Relatório Geral")
+            if st.button("📥 Baixar Relatório Geral"):
+                relatorio = gerar_relatorio_pdf(df_pred, "Relatório de Risco Geral")
+                st.download_button("⬇️ Download", relatorio.getvalue(), file_name="relatorio_geral.pdf", mime="application/pdf")
 
-
-def secao_visualizacao_dados(pd):
-    """Seção para visualização dos dados atuais"""
-    st.header("📊 Base de Dados Atual")
-
-    if os.path.exists("dataset/dataSetSintetico.csv"):
-        planilhaCerta = pd.read_csv("dataset/dataSetSintetico.csv")
+    # ==================== TAB 2: Inserção Manual ====================
+    with tab2:
+        st.subheader("🧪 Prever risco para um aluno manualmente")
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("👥 Total de Alunos", len(planilhaCerta))
+            id_manual = st.number_input("ID do Aluno", step=1)
+            media_notas = st.number_input("Média das Notas", 0.0, 10.0)
+            nota1 = st.number_input("Nota 1", 0.0, 10.0)
+            nota2 = st.number_input("Nota 2", 0.0, 10.0)
+            nota3 = st.number_input("Nota 3", 0.0, 10.0)
+            nota4 = st.number_input("Nota 4", 0.0, 10.0)
         with col2:
-            st.metric("📊 Colunas", len(planilhaCerta.columns))
+            nota5 = st.number_input("Nota 5", 0.0, 10.0)
+            nota6 = st.number_input("Nota 6", 0.0, 10.0)
+            nota7 = st.number_input("Nota 7", 0.0, 10.0)
+            nota8 = st.number_input("Nota 8", 0.0, 10.0)
+            nota9 = st.number_input("Nota 9", 0.0, 10.0)
         with col3:
-            st.metric("📋 Registros", len(planilhaCerta))
+            nota10 = st.number_input("Nota 10", 0.0, 10.0)
+            frequencia = st.slider("Frequência (%)", 0, 100, 75)
+            taxa_aprovacao = st.slider("Taxa de Aprovação", 0.0, 1.0, 0.6, step=0.01)
+            total_semestres = st.number_input("Semestres Cursados", 1)
+            trancamentos = st.number_input("Qtd. de Trancamentos", 0)
+            semestre_atual = st.number_input("Semestre Atual", 1)
 
-        # Tabela de dados
-        # st.subheader("📋 Dados Detalhados")
-        # st.dataframe(
-        #    planilhaCerta.set_index("id_aluno"),
-        #   use_container_width=True,
-        #  height=400
-        # )
-    else:
-        st.warning("⚠️ Nenhum arquivo de dados encontrado.")
+        incluir = st.checkbox("➕ Incluir na análise geral")
 
-
-def secao_evolucao_aluno(st, pd):
-    """Seção para visualização da evolução do aluno"""
-    st.header("📈 Evolução Acadêmica")
-
-    with st.expander("🎯 Acompanhar Evolução do Aluno", expanded=False):
-        mostrar_evolucao_aluno(st, pd)
-
-
-def secao_comparacao_aluno(st, pd):
-    """Seção para comparação de alunos"""
-    st.header("📈 Análise Individual")
-
-    with st.expander("🔍 Comparar Aluno com Média do Curso", expanded=False):
-        comparar_aluno_com_media(st, pd)
-
-
-def inserir_dados_aluno():
-    """Interface organizada para inserção de dados de aluno"""
-    st.subheader("✏️ Cadastrar Novo Aluno")
-
-    with st.form("form_aluno"):
-        st.markdown("**📋 Informações Básicas**")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            id_aluno = st.number_input("🆔 ID do Aluno", min_value=1, step=1)
-            semestre_atual = st.number_input("📚 Semestre Atual", min_value=1, step=1)
-            total_semestres_cursados = st.number_input("⏱️ Total de Semestres Cursados", min_value=1, step=1)
-
-        with col2:
-            tempo_permanencia = st.number_input("🕐 Tempo de Permanência (semestres)", min_value=1, step=1)
-            frequencia = st.number_input("📅 Frequência (%)", min_value=0, max_value=100, step=1)
-            taxa_aprovacao = st.slider("✅ Taxa de Aprovação", min_value=0.0, max_value=1.0, step=0.01, format="%.2f")
-
-        st.markdown("---")
-        st.markdown("**📊 Desempenho Acadêmico**")
-        col3, col4, col5 = st.columns(3)
-
-        with col3:
-            nota_disciplina1 = st.number_input("📝 Nota Disciplina 1", min_value=0.0, max_value=10.0, step=0.1,
-                                               format="%.2f")
-        with col4:
-            nota_disciplina2 = st.number_input("📝 Nota Disciplina 2", min_value=0.0, max_value=10.0, step=0.1,
-                                               format="%.2f")
-        with col5:
-            media_notas = st.number_input("📈 Média das Notas", min_value=0.0, max_value=10.0, step=0.1, format="%.2f")
-
-        st.markdown("---")
-        enviado = st.form_submit_button("💾 Salvar Aluno", type="primary", use_container_width=True)
-
-        if enviado:
-            novo_aluno = {
-                "id_aluno": id_aluno,
+        if st.button("🔍 Prever Risco"):
+            aluno_manual = pd.DataFrame([{
+                "id_aluno": id_manual,
+                "media_notas": media_notas,
+                "frequencia": frequencia,
+                "taxa_aprovacao": taxa_aprovacao,
+                "total_semestres_cursados": total_semestres,
+                "qtd_trancamentos": trancamentos,
                 "semestre_atual": semestre_atual,
-                "total_semestres_cursados": total_semestres_cursados,
-                "nota_disciplina1": round(nota_disciplina1, 2),
-                "nota_disciplina2": round(nota_disciplina2, 2),
-                "media_notas": round(media_notas, 2),
-                "taxa_aprovacao": round(taxa_aprovacao, 2),
-                "tempo_permanencia": tempo_permanencia,
-                "frequencia": frequencia
-            }
-            inserir_dado_na_planilha(novo_aluno, "dataset/dataSetSintetico.csv")
-            st.success("✅ Aluno cadastrado com sucesso!")
-            time.sleep(1)
-            st.rerun()
+                "nota_disciplina1": nota1, "nota_disciplina2": nota2, "nota_disciplina3": nota3,
+                "nota_disciplina4": nota4, "nota_disciplina5": nota5, "nota_disciplina6": nota6,
+                "nota_disciplina7": nota7, "nota_disciplina8": nota8, "nota_disciplina9": nota9,
+                "nota_disciplina10": nota10
+            }])
+            df_manual_pred = prever_risco_evasao(aluno_manual)
+            aluno = df_manual_pred.iloc[0]
+            st.success(f"Previsão: {aluno['Nível de Risco']} ({aluno['Probabilidade']:.2%})")
 
+            if incluir:
+                if df_pred is not None:
+                    df_pred = pd.concat([df_pred, df_manual_pred], ignore_index=True)
+                    st.success("Aluno incluído na base de análise.")
+                else:
+                    df_pred = df_manual_pred.copy()
+                    st.success("Base criada com o aluno inserido.")
 
-def inserir_planilha():
-    """Interface para upload de planilha"""
-    st.subheader("📤 Importar Dados via CSV")
+    # ==================== TAB 3: Análise Individual ====================
+    with tab3:
+        st.subheader("👤 Análise de Aluno")
 
-    os.makedirs("dataset", exist_ok=True)
+        if df_pred is not None and not df_pred.empty:
+            aluno_id = st.selectbox("Selecione um aluno:", df_pred["id_aluno"].unique())
+            aluno = df_pred[df_pred["id_aluno"] == aluno_id].iloc[0]
+            media = df_pred[["media_notas", "frequencia", "taxa_aprovacao"]].mean()
 
-    with st.expander("ℹ️ Formato do arquivo CSV"):
-        st.markdown("""
-        **Colunas necessárias:**
-        - id_aluno
-        - semestre_atual  
-        - total_semestres_cursados
-        - nota_disciplina1
-        - nota_disciplina2
-        - media_notas
-        - taxa_aprovacao
-        - tempo_permanencia
-        - frequencia
-        """)
+            st.write(f"🧠 **Probabilidade de Evasão:** {aluno['Probabilidade']:.2%}")
+            st.write(f"📊 **Nível de Risco:** {aluno['Nível de Risco']}")
 
-    uploaded_file = st.file_uploader(
-        "Selecione um arquivo CSV",
-        type=["csv"],
-        help="Arquivo CSV com os dados dos alunos"
-    )
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=[aluno["media_notas"], aluno["frequencia"], aluno["taxa_aprovacao"]],
+                theta=["Notas", "Frequência", "Aprovação"], fill='toself', name='Aluno'
+            ))
+            fig.add_trace(go.Scatterpolar(
+                r=[media["media_notas"], media["frequencia"], media["taxa_aprovacao"]],
+                theta=["Notas", "Frequência", "Aprovação"], fill='toself', name='Média'
+            ))
+            fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 10])), showlegend=True)
+            st.plotly_chart(fig, use_container_width=True)
 
-    if uploaded_file is not None:
-        try:
-            preview_df = pd.read_csv(uploaded_file)
-            st.subheader("👀 Preview do Arquivo")
-            st.dataframe(preview_df.head(), use_container_width=True)
+            causas = []
+            if aluno["frequencia"] < media["frequencia"]:
+                causas.append("frequência abaixo da média")
+            if aluno["media_notas"] < media["media_notas"]:
+                causas.append("notas abaixo da média")
+            if aluno.get("taxa_aprovacao", 0) < media.get("taxa_aprovacao", 0):
+                causas.append("baixa taxa de aprovação")
 
-            if st.button("📥 Confirmar Import", type="primary"):
-                backup_path = "dataset/dataSetSintetico_backup.csv"
-                file_path = os.path.join("dataset", "dataSetSintetico.csv")
-
-                if os.path.exists(file_path):
-                    if os.path.exists(backup_path):
-                        os.remove(backup_path)
-                    os.rename(file_path, backup_path)
-                    st.info("🔄 Backup do arquivo anterior criado")
-
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-
-                st.success(f"✅ Arquivo importado com sucesso!")
-                time.sleep(1)
-                st.rerun()
-
-        except Exception as e:
-            st.error(f"❌ Erro ao ler arquivo: {str(e)}")
-
-
-def inserir_dado_na_planilha(novo_aluno, path):
-    """Insere um novo aluno na planilha"""
-    try:
-        df = pd.read_csv(path)
-        df = pd.concat([df, pd.DataFrame([novo_aluno])], ignore_index=True)
-        df.to_csv("dataset/dataSetSintetico.csv", index=False)
-    except FileNotFoundError:
-        df = pd.DataFrame([novo_aluno])
-        df.to_csv("dataset/dataSetSintetico.csv", index=False)
-
-
-def comparar_aluno_com_media(st, pd, path="dataset/dataSetSintetico.csv"):
-    """Interface para comparação de aluno com média"""
-    if not os.path.exists(path):
-        st.error("❌ Arquivo de dados não encontrado.")
-        return
-
-    df = pd.read_csv(path)
-
-    col_numericas = [
-        "nota_disciplina1", "nota_disciplina2", "media_notas",
-        "frequencia", "taxa_aprovacao", "tempo_permanencia",
-        "total_semestres_cursados", "semestre_atual"
-    ]
-
-    for col in col_numericas:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().str.replace(',', '.')
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    col_select, col_button = st.columns([3, 1])
-
-    with col_select:
-        id_aluno = st.selectbox(
-            "🎯 Selecione o ID do aluno",
-            options=sorted(df["id_aluno"].unique()),
-            help="Escolha o aluno para comparar com a média"
-        )
-
-    with col_button:
-        st.markdown("<br>", unsafe_allow_html=True)  # Espaçamento
-        comparar = st.button("📊 Comparar", type="primary")
-
-    if comparar:
-        if id_aluno not in df["id_aluno"].values:
-            st.error("❌ Aluno não encontrado na base de dados.")
-            return
-
-        aluno = df[df["id_aluno"] == id_aluno].iloc[0]
-
-        medias = {}
-        for col in col_numericas:
-            if col in df.columns:
-                medias[col] = df[col].mean()
-
-        col_dados, col_medias = st.columns(2)
-
-        with col_dados:
-            st.subheader(f"👤 Dados do Aluno {id_aluno}")
-            aluno_dados = aluno[col_numericas]
-            aluno_df = pd.DataFrame({
-                "Métrica": [col.replace('_', ' ').title() for col in aluno_dados.index],
-                "Valor": [f"{val:.2f}" if isinstance(val, (int, float)) else str(val) for val in aluno_dados.values]
-            })
-            st.dataframe(aluno_df, hide_index=True, use_container_width=True)
-
-        with col_medias:
-            st.subheader("📊 Médias do Curso")
-            medias_df = pd.DataFrame({
-                "Métrica": [col.replace('_', ' ').title() for col in medias.keys()],
-                "Média": [f"{val:.2f}" for val in medias.values()]
-            })
-            st.dataframe(medias_df, hide_index=True, use_container_width=True)
-
-        st.subheader("🔍 Análise Comparativa")
-
-        comparacao = {}
-        abaixo_da_media = []
-
-        for chave, media_valor in medias.items():
-            valor_aluno = aluno[chave]
-            diferenca = valor_aluno - media_valor
-
-            if diferenca > 0:
-                situacao = "🟢 Acima da média"
-            elif diferenca == 0:
-                situacao = "🟡 Na média"
+            # Ações sugeridas
+            if aluno['Nível de Risco'] == "🔴 Alto":
+                acao = "Encaminhar para tutoria ou agendar reunião com a coordenação."
+            elif aluno['Nível de Risco'] == "🟠 Médio":
+                acao = "Acompanhar de perto o desempenho nos próximos semestres."
             else:
-                situacao = "🔴 Abaixo da média"
-                abaixo_da_media.append(chave.replace('_', ' ').title())
+                acao = "Manter acompanhamento padrão."
 
-            comparacao[chave.replace('_', ' ').title()] = {
-                "Aluno": f"{valor_aluno:.2f}",
-                "Média": f"{media_valor:.2f}",
-                "Diferença": f"{diferenca:+.2f}",
-                "Status": situacao
-            }
+            st.markdown(f"📌 **Recomendações:** {acao}")
+            if causas:
+                st.info("🧭 Possíveis fatores de risco: " + ", ".join(causas))
 
-        comparacao_df = pd.DataFrame(comparacao).T
-        st.dataframe(comparacao_df, use_container_width=True)
-
-        if len(abaixo_da_media) >= 4:
-            st.error(
-                f"⚠️ **ALERTA DE RISCO DE EVASÃO**\n\n"
-                f"O aluno apresenta desempenho abaixo da média em {len(abaixo_da_media)} métricas: "
-                f"{', '.join(abaixo_da_media)}.\n\n"
-                f"**Recomendação:** Acompanhamento prioritário e ações de retenção."
-            )
-        elif len(abaixo_da_media) >= 2:
-            st.warning(
-                f"⚠️ **Atenção:** O aluno está abaixo da média em {len(abaixo_da_media)} métricas. "
-                f"Recomenda-se monitoramento."
-            )
+            st.markdown("---")
+            st.subheader("📄 Relatório do Aluno Selecionado")
+            if st.button(f"📥 Baixar Relatório de {aluno_id}"):
+                df_individual = df_pred[df_pred["id_aluno"] == aluno_id]
+                relatorio_ind = gerar_relatorio_pdf(df_individual, f"Relatório do Aluno {aluno_id}")
+                st.download_button(f"⬇️ Download Aluno {aluno_id}", relatorio_ind.getvalue(), file_name=f"relatorio_aluno_{aluno_id}.pdf", mime="application/pdf")
         else:
-            st.success("✅ **Situação Satisfatória:** Aluno com baixo risco de evasão baseado nas métricas atuais.")
+            st.info("📎 Nenhum dado disponível. Envie um CSV em 'Análise por Lote' ou adicione manualmente um aluno em 'Aluno Manual'.")
 
+    # ==================== TAB 4: Histórico de Análises ====================
+    with tab4:
+        st.subheader("📚 Histórico de Análises Salvas")
 
-def mostrar_evolucao_aluno(st, pd, path="dataset/historico_aluno.csv"):
-    if not os.path.exists(path):
-        st.warning("⚠️ Histórico de alunos não encontrado.")
-        return
+        arquivos = sorted(glob.glob("dataset/base_*.csv"), reverse=True)
 
-    df = pd.read_csv(path)
+        if not arquivos:
+            st.info("📂 Nenhuma análise salva foi encontrada.")
+        else:
+            for arq in arquivos:
+                nome = os.path.basename(arq)
+                with st.expander(f"📄 {nome}", expanded=False):
+                    try:
+                        df_hist = pd.read_csv(arq)
+                        st.markdown(f"**👥 Registros:** {len(df_hist)}")
+                        st.dataframe(df_hist.head(10), use_container_width=True)
 
-    for col in ["media_notas", "frequencia", "taxa_aprovacao"]:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+                        with open(arq, "rb") as f:
+                            st.download_button(
+                                label=f"⬇️ Baixar {nome}",
+                                data=f,
+                                file_name=nome,
+                                mime="text/csv"
+                            )
 
-    alunos_disponiveis = sorted(df["id_aluno"].unique())
-    id_aluno = st.selectbox("🎯 Selecione o ID do aluno para visualizar a evolução", alunos_disponiveis)
+                        if st.button(f"📌 Definir como Base para Professores", key=nome):
+                            df_hist.to_csv("dataset/dataSetSintetico.csv", index=False)
+                            st.success("✅ Base atualizada com sucesso e liberada para o painel do professor.")
 
-    dados_aluno = df[df["id_aluno"] == id_aluno].sort_values(by="semestre")
-
-    if dados_aluno.empty:
-        st.info("🔍 Nenhum dado encontrado para esse aluno.")
-        return
-
-    st.subheader(f"📈 Evolução do Aluno {id_aluno} ao Longo dos Semestres")
-
-    st.line_chart(
-        data=dados_aluno.set_index("semestre")[["media_notas", "frequencia", "taxa_aprovacao"]],
-        use_container_width=True,
-        height=400
-    )
-
-
-def secao_tabela_consolidada_filtrada(st, pd, path="dataset/dataSetSintetico1.csv"):
-    st.header("📋 Dados Consolidados por Semestre")
-
-    if not os.path.exists(path):
-        st.warning("⚠️ Arquivo de dados não encontrado.")
-        return
-
-    df = pd.read_csv(path)
-
-    cursos = sorted(df["curso"].unique())
-    semestres = sorted(df["semestre_atual"].unique())
-
-    col1, col2 = st.columns(2)
-    with col1:
-        curso_selecionado = st.selectbox("🎓 Selecione o curso", options=["Todos"] + cursos)
-    with col2:
-        semestre_selecionado = st.selectbox("📚 Selecione o semestre", options=["Todos"] + [str(s) for s in semestres])
-
-    if curso_selecionado != "Todos":
-        df = df[df["curso"] == curso_selecionado]
-    if semestre_selecionado != "Todos":
-        df = df[df["semestre_atual"] == int(semestre_selecionado)]
-
-    if df.empty:
-        st.warning("⚠️ Nenhum dado encontrado com os filtros selecionados.")
-        return
-
-    df_grouped = df.groupby(["curso", "semestre_atual"]).agg({
-        "id_aluno": "count",
-        "media_notas": "mean",
-        "frequencia": "mean",
-        "taxa_aprovacao": "mean"
-    }).reset_index()
-
-    df_grouped = df_grouped.rename(columns={
-        "id_aluno": "Total de Alunos",
-        "media_notas": "Média das Notas",
-        "frequencia": "Frequência Média (%)",
-        "taxa_aprovacao": "Taxa de Aprovação Média"
-    })
-
-    st.dataframe(df_grouped.set_index(["curso", "semestre_atual"]), use_container_width=True)
-
-def exibir_dashboard_individual(st, pd, path="dataset/dataSetSintetico.csv"):
-    import plotly.graph_objects as go
-    import os
-
-    if not os.path.exists(path):
-        st.error("❌ Arquivo de dados não encontrado.")
-        return
-
-    df = pd.read_csv(path)
-
-    metricas_notas = ["nota_disciplina1", "nota_disciplina2", "media_notas"]
-    metricas_frequencia = ["frequencia"]
-    metricas_aprovacao = ["taxa_aprovacao"]
-
-    todas_metricas = metricas_notas + metricas_frequencia + metricas_aprovacao
-
-    for col in todas_metricas:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    df = df.dropna(subset=todas_metricas, how='any')
-
-    if df.empty:
-        st.warning("⚠️ Nenhum dado válido disponível para gerar gráfico.")
-        return
-
-    if "nome_aluno" in df.columns:
-        df["label"] = df["nome_aluno"] + " (ID " + df["id_aluno"].astype(str) + ")"
-        aluno_label = st.selectbox("📌 Selecione o aluno", options=df["label"].tolist())
-        id_aluno = int(aluno_label.split("ID ")[-1].replace(")", ""))
-    else:
-        id_aluno = st.selectbox("📌 Escolha o aluno", options=df["id_aluno"].dropna().unique())
-
-    if id_aluno not in df["id_aluno"].values:
-        st.warning("Aluno não encontrado na base.")
-        return
-
-    aluno = df[df["id_aluno"] == id_aluno].iloc[0]
-    media_geral = df[todas_metricas].mean(numeric_only=True)
-
-    st.subheader(f"📊 Comparativo Gráfico - Aluno {id_aluno}")
-
-    fig_notas = go.Figure([
-        go.Bar(name='Aluno', x=metricas_notas, y=aluno[metricas_notas].values),
-        go.Bar(name='Média Geral', x=metricas_notas, y=media_geral[metricas_notas].values)
-    ])
-    fig_notas.update_layout(barmode='group', title='Notas', height=300)
-    st.plotly_chart(fig_notas, use_container_width=True)
-
-    fig_freq = go.Figure([
-        go.Bar(name='Aluno', x=metricas_frequencia, y=aluno[metricas_frequencia].values),
-        go.Bar(name='Média Geral', x=metricas_frequencia, y=media_geral[metricas_frequencia].values)
-    ])
-    fig_freq.update_layout(barmode='group', title='Frequência (%)', height=250)
-    st.plotly_chart(fig_freq, use_container_width=True)
-
-    fig_aprov = go.Figure([
-        go.Bar(name='Aluno', x=metricas_aprovacao, y=aluno[metricas_aprovacao].values),
-        go.Bar(name='Média Geral', x=metricas_aprovacao, y=media_geral[metricas_aprovacao].values)
-    ])
-    fig_aprov.update_layout(barmode='group', title='Taxa de Aprovação', height=250)
-    st.plotly_chart(fig_aprov, use_container_width=True)
-
-def secao_dashboard_individual(st, pd):
-    """Dashboard visual com gráficos para aluno individual"""
-    st.header("📊 Painel Gráfico de Desempenho Individual")
-    with st.expander("📈 Visualizar Gráficos de Desempenho", expanded=False):
-        exibir_dashboard_individual(st, pd)
-
-def identificar_alunos_em_risco(st, pd, path="dataset/dataSetSintetico.csv"):
-    st.header("🚨 Identificação de Alunos em Risco de Evasão")
-
-    if not os.path.exists(path):
-        st.error("❌ Arquivo de dados não encontrado.")
-        return
-
-    df = pd.read_csv(path)
-
-    metricas = [
-        "nota_disciplina1", "nota_disciplina2", "media_notas",
-        "frequencia", "taxa_aprovacao", "tempo_permanencia",
-        "total_semestres_cursados", "semestre_atual"
-    ]
-
-    for col in metricas:
-        df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-
-    df = df.dropna(subset=metricas)
-
-    if df.empty:
-        st.warning("⚠️ Nenhum dado válido disponível.")
-        return
-
-    medias_gerais = df[metricas].mean()
-
-    alunos_em_risco = []
-
-    for _, row in df.iterrows():
-        abaixo = []
-        for m in metricas:
-            if row[m] < medias_gerais[m]:
-                abaixo.append(m)
-        if len(abaixo) >= 2:
-            nivel = "⚠️ Alerta Crítico" if len(abaixo) >= 4 else "🔎 Acompanhamento"
-            alunos_em_risco.append({
-                "ID": int(row["id_aluno"]),
-                "Nome": row["nome_aluno"] if "nome_aluno" in df.columns else f"Aluno {int(row['id_aluno'])}",
-                "Nº de Métricas Abaixo": len(abaixo),
-                "Métricas Abaixo da Média": ", ".join([m.replace("_", " ").title() for m in abaixo]),
-                "Nível de Alerta": nivel
-            })
-
-    if not alunos_em_risco:
-        st.success("✅ Nenhum aluno em risco de evasão identificado com as métricas atuais.")
-        return
-
-    resultado_df = pd.DataFrame(alunos_em_risco)
-
-    tipo_alerta = st.radio("Selecione o tipo de risco:", ["⚠️ Alerta Crítico", "🔎 Acompanhamento"], horizontal=True)
-
-    filtrado = resultado_df[resultado_df["Nível de Alerta"] == tipo_alerta]
-
-    if filtrado.empty:
-        st.info("Nenhum aluno com esse nível de risco.")
-    else:
-        st.dataframe(filtrado, hide_index=True, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Erro ao ler {nome}: {e}")
