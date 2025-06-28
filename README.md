@@ -50,13 +50,13 @@ Este projeto tem como objetivo desenvolver uma ferramenta preditiva capaz de ide
     pip install -r requirements.txt
     ```
 3. Treine o modelo (opcional, se quiser re-treinar):
-  ```
-  python treinar_modelo.py
-  ```
+    ```
+    python treinar_modelo.py
+    ```
 4. Execute a interface web:
-  ```
-  streamlit run app_streamlit.py
-  ```
+    ```
+    streamlit run app_streamlit.py
+    ```
 ## 📊 Exemplo de Saída
 
 - Probabilidade de evasão: 0.78
