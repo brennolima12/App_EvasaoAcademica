@@ -1,15 +1,12 @@
 import streamlit as st
-import pandas as pd
-import os
-from  views.coordenador_view import painel_coordenador 
-from auth import login,logout
+from views.coordenador_view import painel_coordenador
 from views.professor_view import painel_professor
-
+from auth import login, logout
 
 def main():
-    st.set_page_config(page_title="DashBoard Acompanhamento Academico", layout="wide")
-    st.logo(image="assets/semNome.png", 
-        icon_image="assets/logo_upe.png")
+    st.sidebar.image("assets/logo_upe.png", use_container_width=True)
+    st.set_page_config(page_title="Dashboard Acompanhamento Acadêmico", layout="wide")
+
     if "logado" not in st.session_state:
         st.session_state.logado = False
 
@@ -17,13 +14,12 @@ def main():
         login()
     else:
         if st.session_state.tipo_usuario == "coordenador":
-            painel_coordenador(st,os,pd)
+            painel_coordenador()
         elif st.session_state.tipo_usuario == "professor":
-            painel_professor(st,os,pd)
+            painel_professor()
         else:
             st.error("Tipo de usuário desconhecido.")
             logout()
-
 
 if __name__ == "__main__":
     main()
