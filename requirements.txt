@@ -7,3 +7,5 @@ imblearn
 joblib
 streamlit
 plotly
+openpyxl
+reportlab
