@@ -3,9 +3,10 @@ from views.coordenador_view import painel_coordenador
 from views.professor_view import painel_professor
 from auth import login, logout
 
+st.set_page_config(page_title="Dashboard Acompanhamento Acadêmico", layout="wide")
+
 def main():
     st.sidebar.image("assets/logo_upe.png", use_container_width=True)
-    st.set_page_config(page_title="Dashboard Acompanhamento Acadêmico", layout="wide")
 
     if "logado" not in st.session_state:
         st.session_state.logado = False
