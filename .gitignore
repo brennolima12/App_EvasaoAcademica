@@ -1,16 +1,9 @@
-# Compiled class file
+# Arquivos Java (você já tinha isso)
 *.class
-
-# Log file
 *.log
-
-# BlueJ files
+.xlsx
 *.ctxt
-
-# Mobile Tools for Java (J2ME)
 .mtj.tmp/
-
-# Package Files #
 *.jar
 *.war
 *.nar
@@ -18,7 +11,26 @@
 *.zip
 *.tar.gz
 *.rar
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# 🐍 Arquivos Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ambiente virtual
+.venv/
+venv/
+
+# Arquivos de configuração/IDE
+.vscode/
+.idea/
+
+# Streamlit cache e config
+.streamlit/
+
+# Dados sensíveis ou grandes
+.env
+*.csv
+log_acessos.xlsx
