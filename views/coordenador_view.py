@@ -244,7 +244,7 @@ def painel_coordenador():
                                 mime="text/csv"
                             )
 
-                        if st.button(f"📌 Definir como Base para Professores", key=nome):
+                        if st.button("📌 Definir como Base para Professores", key=nome):
                             df_hist.to_csv("dataset/dataSetSintetico.csv", index=False)
                             st.success("✅ Base atualizada com sucesso e liberada para o painel do professor.")
 

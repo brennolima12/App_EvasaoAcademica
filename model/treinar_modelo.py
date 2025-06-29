@@ -13,7 +13,7 @@ from sklearn.metrics import classification_report, accuracy_score, roc_auc_score
 # ========================
 # 1. Carregar dados
 # ========================
-data = pd.read_csv(r"../dataset/base-sintetica-turma-4-corrigido-atualizada.csv")
+data = pd.read_csv(r"../dataset/arquivo_unificado.csv")
 
 # ========================
 # 2. Calcular slope das notas
