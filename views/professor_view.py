@@ -8,7 +8,7 @@ from utils.relatorios_professor import gerar_pdf_risco_alunos
 
 # ================== Função Principal ==================
 def painel_professor():
-    st.set_page_config(page_title="Painel do Professor", layout="wide")
+    
     configurar_sidebar()
 
     st.title("📘 Painel do Professor")
