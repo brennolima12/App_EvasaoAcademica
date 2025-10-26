@@ -2,6 +2,12 @@
 
 Este projeto tem como objetivo desenvolver uma ferramenta preditiva capaz de identificar, com base em dados acadêmicos, alunos com risco de evasão nos cursos de graduação em exatas. A solução combina inteligência artificial com visualizações interativas para apoiar decisões estratégicas por parte de coordenadores e professores.
 
+Alunos:
+Brenno Pinto Lapa Rego Lima
+Franciele Silva De França
+Larissa Xavier De Arruda
+Lucas Romero Emilio Corrêa
+
 ## 📌 Objetivos
 
 - Prever o risco de evasão de alunos com acurácia mínima de 80%.
